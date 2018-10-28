@@ -1,0 +1,13 @@
+[package]
+name = "new_auto_updater"
+version = "0.1.0"
+authors = ["amk91 <agostino.pisanelli@gmail.com>"]
+
+[dependencies]
+zip = "0.4"
+walkdir = "2"
+chrono = "0.4"
+winapi = "0.3.6"
+
+[features]
+dev = []

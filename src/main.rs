@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::io::{BufReader, BufRead};
-use std::fs::File;
+use std::fs::{File, DirBuilder};
 use std::env::current_dir;
 
 fn main() {
@@ -32,18 +32,34 @@ fn main() {
 		let line = line.unwrap();
 		if line.starts_with("process=") {
 			if let Some(value) = line.split('=').nth(1) {
+				if !&value.ends_with(".exe") {
+					panic!("The name {} provided for the process is not a valid one", value);
+				}
+
 				process_name = Some(value.to_string());
 			}
 		} else if line.starts_with("target_dir=") {
 			if let Some(value) = line.split('=').nth(1) {
+				if !Path::new(&value).exists() {
+					panic!("The path {} does not exist", value);
+				}
+
 				target_dir_path = Some(value.to_string());
 			}
 		} else if line.starts_with("update_dir=") {
 			if let Some(value) = line.split('=').nth(1) {
+				if !Path::new(&value).exists() {
+					panic!("The path {} does not exist", value);
+				}
+
 				update_dir_path = Some(value.to_string());
 			}
 		} else if line.starts_with("backup_dir=") {
 			if let Some(value) = line.split('=').nth(1) {
+				if !Path::new(&value).exists() {
+					panic!("The path {} does not exist", value);
+				}
+
 				backup_dir_path = Some(value.to_string());
 			}
 		}
@@ -70,12 +86,22 @@ fn main() {
 		panic!("No target dir given");
 	};
 
-	let update_dir_path = if let Some(mut value) = update_dir_path {
+	let (update_history_dir_path, update_dir_path) = if let Some(mut value) = update_dir_path {
 		if !value.ends_with("\\") {
 			value.push_str("\\");
 		}
 
-		value
+		let auto_updater_dirpath = format!("{}__auto_updater\\", value);
+		if let Err(err) = DirBuilder::new().create(&auto_updater_dirpath) {
+			panic!("Error creating folder, {}", err);
+		}
+
+		let auto_updater_history_dirpath = format!("{}__auto_updater_history\\", value);
+		if let Err(err) = DirBuilder::new().create(&auto_updater_history_dirpath) {
+			panic!("Error creating folder, {}", err);
+		}
+
+		(auto_updater_dirpath, auto_updater_history_dirpath)
 	} else {
 		panic!("No update dir given");
 	};
@@ -89,7 +115,4 @@ fn main() {
 	} else {
 		panic!("No backup dir given");
 	};
-
-	// Check if folders and exe file exist
-
 }

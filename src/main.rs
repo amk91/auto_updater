@@ -91,17 +91,17 @@ fn main() {
 			value.push_str("\\");
 		}
 
-		let auto_updater_dirpath = format!("{}__auto_updater\\", value);
-		if let Err(err) = DirBuilder::new().create(&auto_updater_dirpath) {
+		let auto_updater_dir_path = format!("{}__auto_updater\\", value);
+		if let Err(err) = DirBuilder::new().create(&auto_updater_dir_path) {
 			panic!("Error creating folder, {}", err);
 		}
 
-		let auto_updater_history_dirpath = format!("{}__auto_updater_history\\", value);
-		if let Err(err) = DirBuilder::new().create(&auto_updater_history_dirpath) {
+		let auto_updater_history_dir_path = format!("{}__auto_updater_history\\", value);
+		if let Err(err) = DirBuilder::new().create(&auto_updater_history_dir_path) {
 			panic!("Error creating folder, {}", err);
 		}
 
-		(auto_updater_dirpath, auto_updater_history_dirpath)
+		(auto_updater_history_dir_path, auto_updater_dir_path)
 	} else {
 		panic!("No update dir given");
 	};

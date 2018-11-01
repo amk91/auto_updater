@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::io::{BufReader, BufRead, ErrorKind};
-use std::fs::{File, DirBuilder};
+use std::fs::{self, File, DirBuilder};
 use std::env::current_dir;
-use std::process::exit;
+use std::process::{Command, exit};
+use std::time::Duration;
+use std::thread;
 
 extern crate walkdir;
 use walkdir::WalkDir;
@@ -155,6 +157,33 @@ fn main() {
 					continue;
 				};
 
+				let mut is_update_waiting_for_process = false;
+				'wait_for_process: loop {
+					let output = Command::new("tasklist")
+						.output()
+						.expect("Failed to execute command 'tasklist'");
+					let output = String::from_utf8_lossy(&output.stdout);
+					if !output.contains(&process_name) {
+						break 'wait_for_process;
+					} else if !is_update_waiting_for_process {
+						is_update_waiting_for_process = true;
+						println!(
+							"Waiting for process {} to be closed to perform the update",
+							process_name
+						);
+					}
+
+					thread::sleep(Duration::from_millis(1000));
+				}
+
+				if let Err(err) = fs::rename(
+					&process_name,
+					format!("{}{}", process_name, "__TMP")
+				) {
+					println!("Unable to rename {}", process_name);
+					continue;
+				}
+
 				for i in 0..archive.len() {
 					let mut file = if let Ok(file) = archive.by_index(i) {
 						file
@@ -162,6 +191,15 @@ fn main() {
 						println!("Unable to open file inside the archive");
 						break;
 					};
+				}
+
+				// After update is done
+				if let Err(err) = fs::rename(
+					format!("{}{}", process_name, "__TMP"),
+					&process_name
+				) {
+					println!("Unable to rename back {}", process_name);
+					continue;
 				}
 			}
 		}

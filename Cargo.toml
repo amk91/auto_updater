@@ -6,7 +6,7 @@ authors = ["amk91 <agostino.pisanelli@gmail.com>"]
 [dependencies]
 zip = "0.4"
 walkdir = "2"
-chrono = "0.4"
+chrono = "0.4.6"
 winapi = "0.3.6"
 
 [features]

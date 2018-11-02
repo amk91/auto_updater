@@ -12,6 +12,10 @@ use walkdir::WalkDir;
 extern crate zip;
 use zip::ZipArchive;
 
+extern crate chrono;
+use chrono::offset::Local;
+use chrono::{Timelike, Datelike};
+
 fn main() {
 	// Set environment variables
 	let config_file_path: PathBuf = [
@@ -120,12 +124,12 @@ fn main() {
 		panic!("No update dir given");
 	};
 
-	let backup_dir_path = if let Some(mut value) = backup_dir_path {
+	let (error_backup_dir_path, backup_dir_path) = if let Some(mut value) = backup_dir_path {
 		if !value.ends_with("\\") {
 			value.push_str("\\");
 		}
 
-		value
+		(format!("{}{}", value, "__auto_updater_error\\"), value)		
 	} else {
 		panic!("No backup dir given");
 	};
@@ -134,25 +138,61 @@ fn main() {
 		for entry in WalkDir::new(&update_dir_path).into_iter().filter_map(|e| e.ok()) {
 			if let Some(extension) = entry.path().extension() {
 				let archive_file_path = if extension == "zip" {
-					entry.path().to_str().unwrap_or("")
+					entry.path()
 				} else {
 					continue;
 				};
+
+				let date = Local::now();
+				let error_backup_folder_path = format!(
+					"{}\\{}-{}-{}-{}-{}-{}\\",
+					error_backup_dir_path,
+					date.year(), date.month(), date.day(),
+					date.hour(), date.minute(), date.second()
+				);
 
 				let mut archive = if let Ok(archive_file) = File::open(&archive_file_path) {
 					if let Ok(archive) = ZipArchive::new(archive_file) {
 						archive
 					} else {
-						println!("Unable to open zip file {}", archive_file_path);
+						println!(
+							"Unable to open zip file {}",
+							archive_file_path.to_str().unwrap_or("")
+						);
 
-						//TODO: move the file into a different folder
+						if let Some(file_name) = archive_file_path.file_name() {
+							fs::rename(
+								&archive_file_path,
+								&format!(
+									"{}{}",
+									error_backup_folder_path,
+									file_name.to_str().unwrap_or("")
+								)
+							).unwrap_or(());
+						} else {
+							println!("|-> Unable to move the file");
+						}
 
 						continue;
 					}
 				} else {
-					println!("Unable to open file {}", archive_file_path);
+					println!(
+						"Unable to open file {}",
+						archive_file_path.to_str().unwrap_or("")
+					);
 
-					//TODO: move the file into a different folder
+					if let Some(file_name) = archive_file_path.file_name() {
+						fs::rename(
+							&archive_file_path,
+							&format!(
+								"{}{}",
+								error_backup_folder_path,
+								file_name.to_str().unwrap_or("")
+							)
+						).unwrap_or(());
+					} else {
+						println!("|-> Unable to move the file");
+					}
 
 					continue;
 				};
@@ -167,16 +207,18 @@ fn main() {
 						break 'wait_for_process;
 					} else if !is_update_waiting_for_process {
 						is_update_waiting_for_process = true;
-						println!(
+						print!(
 							"Waiting for process {} to be closed to perform the update",
 							process_name
 						);
+					} else {
+						print!(".");
 					}
 
 					thread::sleep(Duration::from_millis(1000));
 				}
 
-				if let Err(err) = fs::rename(
+				if let Err(_) = fs::rename(
 					&process_name,
 					format!("{}{}", process_name, "__TMP")
 				) {
@@ -184,17 +226,44 @@ fn main() {
 					continue;
 				}
 
+				let update_backup_dir_path = format!(
+					"{}\\{}-{}-{}-{}-{}-{}\\",
+					backup_dir_path,
+					date.year(), date.month(), date.day(),
+					date.hour(), date.minute(), date.second()
+				);
+
 				for i in 0..archive.len() {
-					let mut file = if let Ok(file) = archive.by_index(i) {
-						file
+					let mut item = if let Ok(item) = archive.by_index(i) {
+						item
 					} else {
-						println!("Unable to open file inside the archive");
+						println!("Unable to open item inside the archive");
 						break;
 					};
+
+					if item.name().ends_with('/') {
+						if let Some(directory_name) = item.sanitized_name().to_str() {
+							let directory_backup_path = format!(
+								"{}{}",
+								update_backup_dir_path,
+								directory_name
+							);
+
+							if let Err(err) = fs::create_dir(&directory_backup_path) {
+								if err.kind() != ErrorKind::AlreadyExists {
+									println!(
+										"Unable to create folder in backup directory {}",
+										update_backup_dir_path
+									);
+									break;
+								}
+							}
+						}
+					}
 				}
 
 				// After update is done
-				if let Err(err) = fs::rename(
+				if let Err(_) = fs::rename(
 					format!("{}{}", process_name, "__TMP"),
 					&process_name
 				) {

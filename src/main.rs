@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::io::{BufReader, BufRead, ErrorKind};
+use std::io::{self, BufReader, BufRead, ErrorKind};
 use std::fs::{self, File, DirBuilder};
 use std::env::current_dir;
 use std::process::{Command, exit};
@@ -108,14 +108,14 @@ fn main() {
 		let auto_updater_dir_path = format!("{}__auto_updater\\", value);
 		if let Err(err) = DirBuilder::new().create(&auto_updater_dir_path) {
 			if err.kind() != ErrorKind::AlreadyExists {
-				panic!("Error creating folder, {}", err);
+				panic!("Unable to create folder, {}", err);
 			}
 		}
 
 		let auto_updater_history_dir_path = format!("{}__auto_updater_history\\", value);
 		if let Err(err) = DirBuilder::new().create(&auto_updater_history_dir_path) {
 			if err.kind() != ErrorKind::AlreadyExists {
-				panic!("Error creating folder, {}", err);
+				panic!("Unable to create folder, {}", err);
 			}
 		}
 
@@ -135,7 +135,9 @@ fn main() {
 	};
 
 	'main: loop {
-		for entry in WalkDir::new(&update_dir_path).into_iter().filter_map(|e| e.ok()) {
+		for entry in WalkDir::new(&update_dir_path)
+		.into_iter()
+		.filter_map(|e| e.ok()) {
 			if let Some(extension) = entry.path().extension() {
 				let archive_file_path = if extension == "zip" {
 					entry.path()
@@ -218,13 +220,19 @@ fn main() {
 					thread::sleep(Duration::from_millis(1000));
 				}
 
-				if let Err(_) = fs::rename(
-					&process_name,
-					format!("{}{}", process_name, "__TMP")
-				) {
-					println!("Unable to rename {}", process_name);
-					continue;
-				}
+				// let process_path = format!(
+				// 	"{}\\{}",
+				// 	target_dir_path,
+				// 	process_name
+				// );
+
+				// if let Err(_) = fs::rename(
+				// 	&process_path,
+				// 	format!("{}{}", process_path, "__TMP")
+				// ) {
+				// 	println!("Unable to rename {}", process_name);
+				// 	continue;
+				// }
 
 				let update_backup_dir_path = format!(
 					"{}\\{}-{}-{}-{}-{}-{}\\",
@@ -232,6 +240,16 @@ fn main() {
 					date.year(), date.month(), date.day(),
 					date.hour(), date.minute(), date.second()
 				);
+
+				if let Err(err) = DirBuilder::new().create(&update_backup_dir_path) {
+					if err.kind() != ErrorKind::AlreadyExists {
+						println!(
+							"Unable to create folder {}",
+							update_backup_dir_path
+						);
+						break;
+					}
+				}
 
 				for i in 0..archive.len() {
 					let mut item = if let Ok(item) = archive.by_index(i) {
@@ -243,13 +261,13 @@ fn main() {
 
 					if item.name().ends_with('/') {
 						if let Some(directory_name) = item.sanitized_name().to_str() {
-							let directory_backup_path = format!(
+							let backup_directory_path = format!(
 								"{}{}",
 								update_backup_dir_path,
 								directory_name
 							);
 
-							if let Err(err) = fs::create_dir(&directory_backup_path) {
+							if let Err(err) = fs::create_dir(&backup_directory_path) {
 								if err.kind() != ErrorKind::AlreadyExists {
 									println!(
 										"Unable to create folder in backup directory {}",
@@ -259,18 +277,102 @@ fn main() {
 								}
 							}
 						}
+					} else {
+						let item_local_path = item.name().replace("/", "\\");
+						let backup_file_path = format!(
+							"{}{}",
+							update_backup_dir_path,
+							item_local_path
+						);
+
+						let current_file_path = format!(
+							"{}{}",
+							target_dir_path,
+							item_local_path
+						);
+
+						if Path::new(&current_file_path).exists() {
+							if let Err(_) = fs::rename(
+								&current_file_path,
+								backup_file_path
+							) {
+								println!(
+									"Unable to move the file {} inside the backup folder {}",
+									current_file_path,
+									update_backup_dir_path
+								);
+								break;
+							}
+						} else {
+							println!(
+								"File {} does not exist",
+								current_file_path
+							);
+						}
+
+						if let Ok(mut current_file) = File::create(&current_file_path) {
+							if let Err(_) = io::copy(&mut item, &mut current_file) {
+								println!(
+									"Unable to transfer file from archive to {}",
+									current_file_path
+								);
+								break;
+							}
+						}
+					}
+				}
+
+				//archive_file_path
+				if let Some(archive_file_name) = archive_file_path.file_name() {
+					if let Some(archive_file_name) = archive_file_name.to_str() {
+						let update_history_archive_folder_path = format!(
+							"{}{}-{}-{}-{}-{}-{}\\",
+							update_history_dir_path,
+							date.year(), date.month(), date.day(),
+							date.hour(), date.minute(), date.second()
+						);
+
+						if let Err(err) = DirBuilder::new().create(
+							&update_history_archive_folder_path
+						) {
+							if err.kind() != ErrorKind::AlreadyExists {
+								println!(
+									"Unable to create folder {}",
+									update_history_archive_folder_path
+								);
+							}
+						} else {
+							let update_history_archive_path = format!(
+								"{}{}",
+								update_history_archive_folder_path,
+								archive_file_name
+							);
+							if let Err(err) = fs::rename(
+								&archive_file_path,
+								&update_history_archive_path
+							) {
+								println!(
+									"Unable to move archive {}",
+									archive_file_path.to_str().unwrap_or("")
+								);
+								println!("|->{}", err);
+							}
+						}
 					}
 				}
 
 				// After update is done
-				if let Err(_) = fs::rename(
-					format!("{}{}", process_name, "__TMP"),
-					&process_name
-				) {
-					println!("Unable to rename back {}", process_name);
-					continue;
-				}
+				// if let Err(_) = fs::rename(
+				// 	format!("{}{}", process_name, "__TMP"),
+				// 	&process_name
+				// ) {
+				// 	println!("Unable to rename back {}", process_name);
+				// 	continue;
+				// }
 			}
 		}
+
+		println!("End cycle");
+		thread::sleep(Duration::from_millis(30_000));
 	}
 }

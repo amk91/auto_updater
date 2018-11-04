@@ -97,7 +97,7 @@ fn main() {
 
 		value
 	} else {
-		panic!("No target dir given");
+		panic!("No target directory path given");
 	};
 
 	let (update_history_dir_path, update_dir_path) = if let Some(mut value) = update_dir_path {
@@ -121,15 +121,24 @@ fn main() {
 
 		(auto_updater_history_dir_path, auto_updater_dir_path)
 	} else {
-		panic!("No update dir given");
+		panic!("No update directory path given");
 	};
 
-	let (error_backup_dir_path, backup_dir_path) = if let Some(mut value) = backup_dir_path {
+	let (backup_dir_path, error_backup_dir_path) = if let Some(mut value) = backup_dir_path {
 		if !value.ends_with("\\") {
 			value.push_str("\\");
 		}
 
-		(format!("{}{}", value, "__auto_updater_error\\"), value)		
+		let error_backup_dir_path = format!("{}{}", value, "__auto_updater_error\\");
+		if let Err(err) = DirBuilder::new().create(&error_backup_dir_path) {
+			if err.kind() != ErrorKind::AlreadyExists {
+				panic!("Unable to create folder {}", error_backup_dir_path);
+			}
+		}
+
+		let backup_dir_path = value;
+
+		(backup_dir_path, error_backup_dir_path)
 	} else {
 		panic!("No backup dir given");
 	};
@@ -199,6 +208,16 @@ fn main() {
 					continue;
 				};
 
+				let message_thread = if let Ok(thread) = thread::Builder::new()
+				.spawn(|| {
+					thread::park();
+					//TODO: spawn MessageBox
+				}) {
+					thread
+				} else {
+					panic!("Unable to spawn thread");
+				};
+
 				let mut is_update_waiting_for_process = false;
 				'wait_for_process: loop {
 					let output = Command::new("tasklist")
@@ -209,6 +228,7 @@ fn main() {
 						break 'wait_for_process;
 					} else if !is_update_waiting_for_process {
 						is_update_waiting_for_process = true;
+						message_thread.thread().unpark();
 						print!(
 							"Waiting for process {} to be closed to perform the update",
 							process_name
@@ -220,19 +240,9 @@ fn main() {
 					thread::sleep(Duration::from_millis(1000));
 				}
 
-				// let process_path = format!(
-				// 	"{}\\{}",
-				// 	target_dir_path,
-				// 	process_name
-				// );
-
-				// if let Err(_) = fs::rename(
-				// 	&process_path,
-				// 	format!("{}{}", process_path, "__TMP")
-				// ) {
-				// 	println!("Unable to rename {}", process_name);
-				// 	continue;
-				// }
+				if let Err(_) = message_thread.join() {
+					panic!("Unable to close thread");
+				}
 
 				let update_backup_dir_path = format!(
 					"{}\\{}-{}-{}-{}-{}-{}\\",
@@ -360,15 +370,6 @@ fn main() {
 						}
 					}
 				}
-
-				// After update is done
-				// if let Err(_) = fs::rename(
-				// 	format!("{}{}", process_name, "__TMP"),
-				// 	&process_name
-				// ) {
-				// 	println!("Unable to rename back {}", process_name);
-				// 	continue;
-				// }
 			}
 		}
 

@@ -46,13 +46,13 @@ fn message_box(title: &str, message: &str) {
 fn main() {
 	// Set environment variables
 	let config_file_path: PathBuf = [
-		current_dir().unwrap_or(PathBuf::new()),
+		current_dir().unwrap_or_default(),
 		PathBuf::from("config.txt")
 	].iter().collect();
 
 	if !Path::new(&config_file_path).exists() {
 		println!("Config file doesn't exist in {}",
-			current_dir().unwrap_or(PathBuf::new()).to_str().unwrap());
+			current_dir().unwrap_or_default().to_str().unwrap());
 		exit(1);
 	}
 
@@ -118,7 +118,7 @@ fn main() {
 	};
 
 	let target_dir_path = if let Some(mut value) = target_dir_path {
-		if !value.ends_with("\\") {
+		if !value.ends_with('\\') {
 			value.push_str("\\")
 		}
 
@@ -128,7 +128,7 @@ fn main() {
 	};
 
 	let (update_history_dir_path, update_dir_path) = if let Some(mut value) = update_dir_path {
-		if !value.ends_with("\\") {
+		if !value.ends_with('\\') {
 			value.push_str("\\");
 		}
 
@@ -152,7 +152,7 @@ fn main() {
 	};
 
 	let (backup_dir_path, error_backup_dir_path) = if let Some(mut value) = backup_dir_path {
-		if !value.ends_with("\\") {
+		if !value.ends_with('\\') {
 			value.push_str("\\");
 		}
 
@@ -281,20 +281,40 @@ fn main() {
 					};
 
 					if item.name().ends_with('/') {
-						if let Some(directory_name) = item.sanitized_name().to_str() {
-							let backup_directory_path = format!(
+						if let Some(item_directory_name) = item.sanitized_name().to_str() {
+							let item_backup_dir_path = format!(
 								"{}{}",
 								update_backup_dir_path,
-								directory_name
+								item_directory_name
 							);
 
-							if let Err(err) = fs::create_dir(&backup_directory_path) {
+							let item_target_dir_path = format!(
+								"{}{}",
+								target_dir_path,
+								item_directory_name
+							);
+
+							if let Err(err) = DirBuilder::new().create(
+								&item_target_dir_path
+							) {
 								if err.kind() != ErrorKind::AlreadyExists {
 									println!(
-										"Unable to create folder in backup directory {}",
-										update_backup_dir_path
+										"Unable to create folder 
+										in target directory {}",
+										item_target_dir_path
 									);
-									break;
+								} else {
+									if let Err(err) = DirBuilder::new().create(
+										&item_backup_dir_path
+									) {
+										if err.kind() != ErrorKind::AlreadyExists {
+											println!("
+												Unable to create folder 
+												in backup directory {}",
+												item_backup_dir_path
+											);
+										}
+									}
 								}
 							}
 						}

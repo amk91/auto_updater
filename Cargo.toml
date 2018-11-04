@@ -7,7 +7,9 @@ authors = ["amk91 <agostino.pisanelli@gmail.com>"]
 zip = "0.4"
 walkdir = "2"
 chrono = "0.4.6"
-winapi = "0.3.6"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }
 
 [features]
 dev = []

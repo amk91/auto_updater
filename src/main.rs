@@ -16,6 +16,33 @@ extern crate chrono;
 use chrono::offset::Local;
 use chrono::{Timelike, Datelike};
 
+#[cfg(windows)] extern crate winapi;
+
+fn message_box(title: &str, message: &str) {
+    use std::ffi::OsStr;
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null_mut;
+    use winapi::um::winuser::{MB_OK, MB_SYSTEMMODAL, MB_ICONWARNING, MessageBoxW};
+
+    let message: Vec<u16> = OsStr::new(message)
+    	.encode_wide()
+    	.chain(once(0))
+    	.collect();
+    let title: Vec<u16> = OsStr::new(title)
+    	.encode_wide()
+    	.chain(once(0))
+    	.collect();
+    unsafe {
+        MessageBoxW(
+        	null_mut(),
+        	message.as_ptr(),
+        	title.as_ptr(),
+        	MB_OK | MB_SYSTEMMODAL | MB_ICONWARNING
+        );
+    }
+}
+
 fn main() {
 	// Set environment variables
 	let config_file_path: PathBuf = [
@@ -144,6 +171,7 @@ fn main() {
 	};
 
 	'main: loop {
+		let mut update_completed = false;
 		for entry in WalkDir::new(&update_dir_path)
 		.into_iter()
 		.filter_map(|e| e.ok()) {
@@ -208,16 +236,6 @@ fn main() {
 					continue;
 				};
 
-				let message_thread = if let Ok(thread) = thread::Builder::new()
-				.spawn(|| {
-					thread::park();
-					//TODO: spawn MessageBox
-				}) {
-					thread
-				} else {
-					panic!("Unable to spawn thread");
-				};
-
 				let mut is_update_waiting_for_process = false;
 				'wait_for_process: loop {
 					let output = Command::new("tasklist")
@@ -228,20 +246,13 @@ fn main() {
 						break 'wait_for_process;
 					} else if !is_update_waiting_for_process {
 						is_update_waiting_for_process = true;
-						message_thread.thread().unpark();
-						print!(
-							"Waiting for process {} to be closed to perform the update",
-							process_name
+						message_box(
+							"Update available",
+							"A new update is ready\nPlease close the software and wait for the update to be finished\nPress OK to continue"
 						);
-					} else {
-						print!(".");
 					}
 
 					thread::sleep(Duration::from_millis(1000));
-				}
-
-				if let Err(_) = message_thread.join() {
-					panic!("Unable to close thread");
 				}
 
 				let update_backup_dir_path = format!(
@@ -370,10 +381,17 @@ fn main() {
 						}
 					}
 				}
+
+				update_completed = true;
 			}
 		}
 
-		println!("End cycle");
+		if update_completed {
+			message_box(
+				"Update completed",
+				"Software has been successfully updated\nYou can start the software now"
+			);
+		}
 		thread::sleep(Duration::from_millis(30_000));
 	}
 }

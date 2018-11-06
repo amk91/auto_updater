@@ -1,5 +1,7 @@
+#![windows_subsystem = "windows"]
+
 use std::path::{Path, PathBuf};
-use std::io::{self, BufReader, BufRead, ErrorKind};
+use std::io::{self, Write, BufReader, BufRead, ErrorKind};
 use std::fs::{self, File, DirBuilder};
 use std::env::current_dir;
 use std::process::{Command, exit};
@@ -43,7 +45,40 @@ fn message_box(title: &str, message: &str) {
     }
 }
 
+enum ErrorType {
+	Critical,
+	Warning,
+}
+
+fn log_error(error_file: &mut File, message: &str, error_type: ErrorType) {
+	let date = Local::now();
+	let error_type = match error_type {
+		ErrorType::Critical => 'E',
+		ErrorType::Warning => 'W',
+	};
+	let message = format!(
+		"{}/{}/{} {}:{}:{} {}: {}",
+		date.year(), date.month(), date.day(),
+		date.hour(), date.minute(), date.second(),
+		error_type, message
+	);
+
+	error_file.write_all(message.as_bytes()).unwrap_or(());
+}
+
 fn main() {
+	let error_file_path: PathBuf = [
+		current_dir().unwrap_or_default(),
+		PathBuf::from("error_log_auto_updater.txt")
+	].iter().collect();
+
+	let mut error_file = if let Ok(file) = File::create(error_file_path) {
+		file
+	} else {
+		message_box("Error", "Unable to create error log file");
+		exit(1);
+	};
+
 	// Set environment variables
 	let config_file_path: PathBuf = [
 		current_dir().unwrap_or_default(),
@@ -51,15 +86,28 @@ fn main() {
 	].iter().collect();
 
 	if !Path::new(&config_file_path).exists() {
-		println!("Config file doesn't exist in {}",
-			current_dir().unwrap_or_default().to_str().unwrap());
+		log_error(
+			&mut error_file,
+			&format!(
+				"Config file doesn't exist in {}",
+				current_dir().unwrap_or_default().to_str().unwrap()
+			),
+			ErrorType::Critical
+		);
 		exit(1);
 	}
 
 	let config_file = if let Ok(file) = File::open(&config_file_path) {
 		file
 	} else {
-		println!("Unable to open {}", config_file_path.to_str().unwrap_or(""));
+		log_error(
+			&mut error_file,
+			&format!(
+				"Unable to open {}",
+				config_file_path.to_str().unwrap_or("")
+			),
+			ErrorType::Critical
+		);
 		exit(1);
 	};
 
@@ -74,7 +122,15 @@ fn main() {
 		if line.starts_with("process=") {
 			if let Some(value) = line.split('=').nth(1) {
 				if !&value.ends_with(".exe") {
-					panic!("The name {} provided for the process is not a valid one", value);
+					log_error(
+						&mut error_file,
+						&format!(
+							"The name {} provided for the process is not a valid one",
+							value
+						),
+						ErrorType::Critical
+					);
+					exit(1);
 				}
 
 				process_name = Some(value.to_string());
@@ -82,7 +138,12 @@ fn main() {
 		} else if line.starts_with("target_dir=") {
 			if let Some(value) = line.split('=').nth(1) {
 				if !Path::new(&value).exists() {
-					panic!("The path {} does not exist", value);
+					log_error(
+						&mut error_file,
+						&format!("The path {} does not exist", value),
+						ErrorType::Critical
+					);
+					exit(1);
 				}
 
 				target_dir_path = Some(value.to_string());
@@ -90,7 +151,12 @@ fn main() {
 		} else if line.starts_with("update_dir=") {
 			if let Some(value) = line.split('=').nth(1) {
 				if !Path::new(&value).exists() {
-					panic!("The path {} does not exist", value);
+					log_error(
+						&mut error_file,
+						&format!("The path {} does not exist", value),
+						ErrorType::Critical
+					);
+					exit(1);
 				}
 
 				update_dir_path = Some(value.to_string());
@@ -98,7 +164,12 @@ fn main() {
 		} else if line.starts_with("backup_dir=") {
 			if let Some(value) = line.split('=').nth(1) {
 				if !Path::new(&value).exists() {
-					panic!("The path {} does not exist", value);
+					log_error(
+						&mut error_file,
+						&format!("The path {} does not exist", value),
+						ErrorType::Critical
+					);
+					exit(1);
 				}
 
 				backup_dir_path = Some(value.to_string());
@@ -114,7 +185,8 @@ fn main() {
 	let process_name = if let Some(value) = process_name {
 		value
 	} else {
-		panic!("No process name given");
+		log_error(&mut error_file, "No process name given", ErrorType::Critical);
+		exit(1);
 	};
 
 	let target_dir_path = if let Some(mut value) = target_dir_path {
@@ -124,7 +196,12 @@ fn main() {
 
 		value
 	} else {
-		panic!("No target directory path given");
+		log_error(
+			&mut error_file,
+			"No target directory path given",
+			ErrorType::Critical
+		);
+		exit(1);
 	};
 
 	let (update_history_dir_path, update_dir_path) = if let Some(mut value) = update_dir_path {
@@ -135,20 +212,35 @@ fn main() {
 		let auto_updater_dir_path = format!("{}__auto_updater\\", value);
 		if let Err(err) = DirBuilder::new().create(&auto_updater_dir_path) {
 			if err.kind() != ErrorKind::AlreadyExists {
-				panic!("Unable to create folder, {}", err);
+				log_error(
+					&mut error_file,
+					&format!("Unable to create folder - {}", err),
+					ErrorType::Critical
+				);
+				exit(1);
 			}
 		}
 
 		let auto_updater_history_dir_path = format!("{}__auto_updater_history\\", value);
 		if let Err(err) = DirBuilder::new().create(&auto_updater_history_dir_path) {
 			if err.kind() != ErrorKind::AlreadyExists {
-				panic!("Unable to create folder, {}", err);
+				log_error(
+					&mut error_file,
+					&format!("Unable to create folder - {}", err),
+					ErrorType::Critical,
+				);
+				exit(1);
 			}
 		}
 
 		(auto_updater_history_dir_path, auto_updater_dir_path)
 	} else {
-		panic!("No update directory path given");
+		log_error(
+			&mut error_file,
+			"No update directory path given",
+			ErrorType::Critical
+		);
+		exit(1);
 	};
 
 	let (backup_dir_path, error_backup_dir_path) = if let Some(mut value) = backup_dir_path {
@@ -159,7 +251,12 @@ fn main() {
 		let error_backup_dir_path = format!("{}{}", value, "__auto_updater_error\\");
 		if let Err(err) = DirBuilder::new().create(&error_backup_dir_path) {
 			if err.kind() != ErrorKind::AlreadyExists {
-				panic!("Unable to create folder {}", error_backup_dir_path);
+				log_error(
+					&mut error_file,
+					&format!("Unable to create folder {}", error_backup_dir_path),
+					ErrorType::Critical
+				);
+				exit(1);
 			}
 		}
 
@@ -167,7 +264,12 @@ fn main() {
 
 		(backup_dir_path, error_backup_dir_path)
 	} else {
-		panic!("No backup dir given");
+		log_error(
+			&mut error_file,
+			&format!("No backup directory path given"),
+			ErrorType::Critical
+		);
+		exit(1);
 	};
 
 	'main: loop {
@@ -194,9 +296,13 @@ fn main() {
 					if let Ok(archive) = ZipArchive::new(archive_file) {
 						archive
 					} else {
-						println!(
-							"Unable to open zip file {}",
-							archive_file_path.to_str().unwrap_or("")
+						log_error(
+							&mut error_file,
+							&format!(
+								"Unable to open zip file {}",
+								archive_file_path.to_str().unwrap_or("")
+							),
+							ErrorType::Warning
 						);
 
 						if let Some(file_name) = archive_file_path.file_name() {
@@ -209,15 +315,26 @@ fn main() {
 								)
 							).unwrap_or(());
 						} else {
-							println!("|-> Unable to move the file");
+							log_error(
+								&mut error_file,
+								&format!(
+									"Unable to move the file {}",
+									&archive_file_path.to_str().unwrap_or("")
+								),
+								ErrorType::Warning
+							);
 						}
 
 						continue;
 					}
 				} else {
-					println!(
-						"Unable to open file {}",
-						archive_file_path.to_str().unwrap_or("")
+					log_error(
+						&mut error_file,
+						&format!(
+							"Unable to open file {}",
+							archive_file_path.to_str().unwrap_or("")
+						),
+						ErrorType::Warning
 					);
 
 					if let Some(file_name) = archive_file_path.file_name() {
@@ -230,7 +347,14 @@ fn main() {
 							)
 						).unwrap_or(());
 					} else {
-						println!("|-> Unable to move the file");
+						log_error(
+							&mut error_file,
+							&format!(
+								"Unable to move the file {}",
+								archive_file_path.to_str().unwrap_or("")
+							),
+							ErrorType::Warning
+						);
 					}
 
 					continue;
@@ -264,9 +388,13 @@ fn main() {
 
 				if let Err(err) = DirBuilder::new().create(&update_backup_dir_path) {
 					if err.kind() != ErrorKind::AlreadyExists {
-						println!(
-							"Unable to create folder {}",
-							update_backup_dir_path
+						log_error(
+							&mut error_file,
+							&format!(
+								"Unable to create folder {}",
+								update_backup_dir_path
+							),
+							ErrorType::Warning
 						);
 						break;
 					}
@@ -276,7 +404,11 @@ fn main() {
 					let mut item = if let Ok(item) = archive.by_index(i) {
 						item
 					} else {
-						println!("Unable to open item inside the archive");
+						log_error(
+							&mut error_file,
+							&format!("Unable to open item inside the archive"),
+							ErrorType::Warning
+						);
 						break;
 					};
 
@@ -298,20 +430,28 @@ fn main() {
 								&item_target_dir_path
 							) {
 								if err.kind() != ErrorKind::AlreadyExists {
-									println!(
-										"Unable to create folder 
-										in target directory {}",
-										item_target_dir_path
+									log_error(
+										&mut error_file,
+										&format!(
+											"Unable to create folder
+											in target directory {}",
+											item_target_dir_path
+										),
+										ErrorType::Warning
 									);
 								} else {
 									if let Err(err) = DirBuilder::new().create(
 										&item_backup_dir_path
 									) {
 										if err.kind() != ErrorKind::AlreadyExists {
-											println!("
-												Unable to create folder 
-												in backup directory {}",
-												item_backup_dir_path
+											log_error(
+												&mut error_file,
+												&format!(
+													"Unable to create folder 
+													in backup directory {}",
+													item_backup_dir_path
+												),
+												ErrorType::Warning	
 											);
 										}
 									}
@@ -337,25 +477,37 @@ fn main() {
 								&current_file_path,
 								backup_file_path
 							) {
-								println!(
-									"Unable to move the file {} inside the backup folder {}",
-									current_file_path,
-									update_backup_dir_path
+								log_error(
+									&mut error_file,
+									&format!(
+										"Unable to move the file {} 
+										inside the backup folder",
+										update_backup_dir_path
+									),
+									ErrorType::Warning
 								);
 								break;
 							}
 						} else {
-							println!(
-								"File {} does not exist",
-								current_file_path
+							log_error(
+								&mut error_file,
+								&format!(
+									"File {} does not exist",
+									current_file_path
+								),
+								ErrorType::Warning
 							);
 						}
 
 						if let Ok(mut current_file) = File::create(&current_file_path) {
 							if let Err(_) = io::copy(&mut item, &mut current_file) {
-								println!(
-									"Unable to transfer file from archive to {}",
-									current_file_path
+								log_error(
+									&mut error_file,
+									&format!(
+										"Unable to transfer file from archive to {}",
+										current_file_path
+									),
+									ErrorType::Warning
 								);
 								break;
 							}
@@ -377,9 +529,13 @@ fn main() {
 							&update_history_archive_folder_path
 						) {
 							if err.kind() != ErrorKind::AlreadyExists {
-								println!(
-									"Unable to create folder {}",
-									update_history_archive_folder_path
+								log_error(
+									&mut error_file,
+									&format!(
+										"Unable to create folder {}",
+										update_history_archive_folder_path
+									),
+									ErrorType::Warning
 								);
 							}
 						} else {
@@ -392,11 +548,15 @@ fn main() {
 								&archive_file_path,
 								&update_history_archive_path
 							) {
-								println!(
-									"Unable to move archive {}",
-									archive_file_path.to_str().unwrap_or("")
+								log_error(
+									&mut error_file,
+									&format!(
+										"Unable to move archive {} - {}",
+										archive_file_path.to_str().unwrap_or(""),
+										err
+									),
+									ErrorType::Warning
 								);
-								println!("|->{}", err);
 							}
 						}
 					}

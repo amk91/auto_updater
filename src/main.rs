@@ -67,6 +67,8 @@ fn log_error(error_file: &mut File, message: &str, error_type: ErrorType) {
 }
 
 fn main() {
+	// Generating a file where the events of
+	// the update can be logged
 	let error_file_path: PathBuf = [
 		current_dir().unwrap_or_default(),
 		PathBuf::from("error_log_auto_updater.txt")
@@ -79,7 +81,13 @@ fn main() {
 		exit(1);
 	};
 
-	// Set environment variables
+	// The program starts by reading a config.txt file,
+	// where it can find all the necessary information
+	// for running the updates, like the process name,
+	// the target directory of the updates,
+	// where to find the updates and where to move
+	// the data for backup. The data is needed in order
+	// to run the software, otherwise it is shut down
 	let config_file_path: PathBuf = [
 		current_dir().unwrap_or_default(),
 		PathBuf::from("config.txt")
@@ -111,12 +119,22 @@ fn main() {
 		exit(1);
 	};
 
-	let config_file = BufReader::new(&config_file);
-	let lines = config_file.lines();
+	// These variables will store the necessary data
+	// for the program to run properly. If they are not
+	// filled with valid data, the program will stop
 	let mut process_name: Option<String> = None;
 	let mut target_dir_path: Option<String> = None;
 	let mut update_dir_path: Option<String> = None;
 	let mut backup_dir_path: Option<String> = None;
+
+	// The config file needs to have the following keywords
+	// followed by an = symbol and the actual information:
+	// process
+	// target_dir
+	// update_dir
+	// backup_dir
+	let config_file = BufReader::new(&config_file);
+	let lines = config_file.lines();
 	for line in lines.filter(|x| x.is_ok()) {
 		let line = line.unwrap();
 		if line.starts_with("process=") {
@@ -190,6 +208,8 @@ fn main() {
 	};
 
 	let target_dir_path = if let Some(mut value) = target_dir_path {
+		// The path will be fixed if a final backslash is missing
+		// in order to avoid more checkes later during the update
 		if !value.ends_with('\\') {
 			value.push_str("\\")
 		}
@@ -205,10 +225,15 @@ fn main() {
 	};
 
 	let (update_history_dir_path, update_dir_path) = if let Some(mut value) = update_dir_path {
+		// The path will be fixed if a final backslash is missing
+		// in order to avoid more checkes later during the update
 		if !value.ends_with('\\') {
 			value.push_str("\\");
 		}
 
+		// The update directory is used to create two additional folders,
+		// one used to store the archive for the update and the other one
+		// to have an history of all archives used to do updates
 		let auto_updater_dir_path = format!("{}__auto_updater\\", value);
 		if let Err(err) = DirBuilder::new().create(&auto_updater_dir_path) {
 			if err.kind() != ErrorKind::AlreadyExists {
@@ -244,10 +269,14 @@ fn main() {
 	};
 
 	let (backup_dir_path, error_backup_dir_path) = if let Some(mut value) = backup_dir_path {
+		// The path will be fixed if a final backslash is missing
+		// in order to avoid more checkes later during the update
 		if !value.ends_with('\\') {
 			value.push_str("\\");
 		}
 
+		// An additional folder is created inside the backup directory to
+		// store archives that the program could not open for some reason
 		let error_backup_dir_path = format!("{}{}", value, "__auto_updater_error\\");
 		if let Err(err) = DirBuilder::new().create(&error_backup_dir_path) {
 			if err.kind() != ErrorKind::AlreadyExists {
@@ -274,6 +303,8 @@ fn main() {
 
 	'main: loop {
 		let mut update_completed = false;
+		// The program checks if there are files inside the update directory
+		// and if one is a zip file, it will proceed with the update
 		for entry in WalkDir::new(&update_dir_path)
 		.into_iter()
 		.filter_map(|e| e.ok()) {
@@ -292,6 +323,8 @@ fn main() {
 					date.hour(), date.minute(), date.second()
 				);
 
+				// If the archive cannot be opened, the program will try to move it
+				// in the error backup folder and it will start over with the main loop
 				let mut archive = if let Ok(archive_file) = File::open(&archive_file_path) {
 					if let Ok(archive) = ZipArchive::new(archive_file) {
 						archive
@@ -379,6 +412,8 @@ fn main() {
 					thread::sleep(Duration::from_millis(1000));
 				}
 
+				// The program creates the folder where the files will be stored
+				// before being replaced during the update
 				let update_backup_dir_path = format!(
 					"{}\\{}-{}-{}-{}-{}-{}\\",
 					backup_dir_path,
@@ -386,6 +421,7 @@ fn main() {
 					date.hour(), date.minute(), date.second()
 				);
 
+				// The update will not start if the backup folder cannot be created
 				if let Err(err) = DirBuilder::new().create(&update_backup_dir_path) {
 					if err.kind() != ErrorKind::AlreadyExists {
 						log_error(
@@ -396,7 +432,7 @@ fn main() {
 							),
 							ErrorType::Warning
 						);
-						break;
+						continue;
 					}
 				}
 
@@ -412,6 +448,12 @@ fn main() {
 						break;
 					};
 
+					// If the current item is a folder, its name will end with a slash.
+					// In that case, the program tries to create the folder in the target
+					// directory. If the folder exists, a backup folder with the same
+					// name will be created. If the folder does not exist, it will be created
+					// in the target directory, but not in the backup directory, since there
+					// will be nothing to back up.
 					if item.name().ends_with('/') {
 						if let Some(item_directory_name) = item.sanitized_name().to_str() {
 							let item_backup_dir_path = format!(
@@ -459,6 +501,8 @@ fn main() {
 							}
 						}
 					} else {
+						// If the item is a file, the program will replace all the backslash with
+						// the forslash for the Windows rapresentation of a path.
 						let item_local_path = item.name().replace("/", "\\");
 						let backup_file_path = format!(
 							"{}{}",
@@ -472,6 +516,9 @@ fn main() {
 							item_local_path
 						);
 
+						// If the file exists, the program will try to move it in the
+						// backup folder created before. If the move fails, the update
+						// stops in order to avoid losing data
 						if Path::new(&current_file_path).exists() {
 							if let Err(_) = fs::rename(
 								&current_file_path,
@@ -499,6 +546,9 @@ fn main() {
 							);
 						}
 
+						// The data from the file of the archive is transferred to the
+						// corresponding file inside the target directory. If this fails,
+						// the update is stopped
 						if let Ok(mut current_file) = File::create(&current_file_path) {
 							if let Err(_) = io::copy(&mut item, &mut current_file) {
 								log_error(
@@ -515,7 +565,8 @@ fn main() {
 					}
 				}
 
-				//archive_file_path
+				// After the update has finished, the program will move the archive in
+				// the update history directory
 				if let Some(archive_file_name) = archive_file_path.file_name() {
 					if let Some(archive_file_name) = archive_file_name.to_str() {
 						let update_history_archive_folder_path = format!(
